@@ -1,5 +1,5 @@
 import os
-from cogs import qotd
+from satmathbot.cogs import qotd
 import logging
 
 import discord
@@ -9,7 +9,7 @@ import discord.ext.commands
 from discord.ext import commands
 from dotenv import load_dotenv
 
-
+logging.getLogger("root").setLevel(logging.INFO)
 
 assert load_dotenv("./.env")  # make sure it loads
 intents = discord.Intents.all() # FIX
@@ -42,7 +42,9 @@ if is_dev:
         await interaction.response.defer(thinking=True)
         logging.info("reloading bot")
         for cog in client.cogs.values():
-            cog_to_reload = await client.remove_cog(cog.__cog_name__, guild=TESTING_GUILD)
+            cog_to_reload = await client.remove_cog(cog.__cog_name__.lower(), guild=TESTING_GUILD)
+            if cog_to_reload == None:
+                raise ValueError(f"Cog: {cog.__cog_name__.lower()} not found ")
             await client.add_cog(
                 cog_to_reload
             )
@@ -67,6 +69,6 @@ async def on_command_error(interaction: discord.Interaction, error):
 
 client.run(
     os.environ["TOKEN"],
-    log_level=os.environ.get("LOG_LEVEL", "INFO").upper(),
+    log_level=os.environ.get("LOG_LEVEL", "INFO").upper()
     
 )
