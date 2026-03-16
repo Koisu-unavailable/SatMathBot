@@ -3,7 +3,7 @@ from typing import Callable, Optional
 
 
 class Node:
-    def __init__(self, value, child, convert_to_latex: Callable[[Node], str]) -> None:
+    def __init__(self, value, child, convert_to_latex: Callable[[Node], LatexNode]) -> None:
         self.value = value
         self.child = child
         self.parent = None
@@ -32,9 +32,11 @@ class OperationNode(Node):
         self,
         value: Callable[[float, float], float],
         child: list[Node],
-        convert_to_latex
+        convert_to_latex,
+        priority: int
     ) -> None:
         super().__init__(value, child, convert_to_latex)
+        self.priority = priority
         for child in self.child:
             child.parent = self
 
@@ -143,6 +145,9 @@ class TreeCollapser:
             for i in [0,1]:
                 node.child[i] = self.convert_tree_to_latex(node.child[i])
             latex = node.convert_to_latex(node)
+            if isinstance(node.parent, OperationNode):
+                if node.priority >= node.parent.priority:
+                    latex.value = r"\left(" + latex.value + r"\right)"
             return latex
         if isinstance(node, UnaryOperationNode):
             node.child = self.convert_tree_to_latex(node.child)
@@ -159,7 +164,7 @@ def num_to_latex(node):
 
 
 def add_to_latex(node):
-    return LatexNode(f"\\left({node.child[0].value} + {node.child[1].value}\\right)")
+    return LatexNode(f"{node.child[0].value} + {node.child[1].value}")
 
 
 def mul_to_latex(node):
@@ -171,58 +176,63 @@ def pow_to_latex(node):
 
 
 def sub_to_latex(node):
-    return LatexNode(f"\\left({node.child[0].value} - {node.child[1].value}\\right)")
+    return LatexNode(f"{node.child[0].value} - {node.child[1].value}")
 
 
 def sqrt_to_latex(node):
     return LatexNode(f"\\sqrt{{{node.child.value}}}")
 
-import copy
-beginning = OperationNode(
-    lambda x, y: x + y,
-    [
-        OperationNode(
-            lambda x, y: x * y,
-            [
-                NumberNode(9, num_to_latex),
-                NumberNode(2, num_to_latex)
-            ],
-            mul_to_latex
-        ),
-        OperationNode(
-            lambda x, y: x * y,
-            [
-                OperationNode(
-                    lambda x, y: x**y,
-                    [
-                        NumberNode(2, num_to_latex),
-                        NumberNode(2, num_to_latex)
-                    ],
-                    pow_to_latex
-                ),
-                OperationNode(
-                    lambda x, y: x - y,
-                    [
-                        UnaryOperationNode(
-                            lambda x: x ** (1 / 2),
-                            NumberNode(64, num_to_latex),
-                            sqrt_to_latex
-                        ),
-                        NumberNode(2, num_to_latex),
-                    ],
-                    sub_to_latex
-                ),
-            ],
-            mul_to_latex
-        ),
-    ],
-    add_to_latex
-)
+# import copy
+# beginning = OperationNode(
+#     lambda x, y: x + y,
+#     [
+#         OperationNode(
+#             lambda x, y: x * y,
+#             [
+#                 NumberNode(9, num_to_latex),
+#                 NumberNode(2, num_to_latex)
+#             ],
+#             mul_to_latex,
+#             2
+#         ),
+#         OperationNode(
+#             lambda x, y: x * y,
+#             [
+#                 OperationNode(
+#                     lambda x, y: x**y,
+#                     [
+#                         NumberNode(2, num_to_latex),
+#                         NumberNode(2, num_to_latex)
+#                     ],
+#                     pow_to_latex,
+#                     1
+#                 ),
+#                 OperationNode(
+#                     lambda x, y: x - y,
+#                     [
+#                         UnaryOperationNode(
+#                             lambda x: x ** (1 / 2),
+#                             NumberNode(64, num_to_latex),
+#                             sqrt_to_latex
+#                         ),
+#                         NumberNode(2, num_to_latex),
+#                     ],
+#                     sub_to_latex,
+#                     3
+#                 ),
+#             ],
+#             mul_to_latex,
+#             2
+#         ),
+#     ],
+#     add_to_latex,
+#     3
+# )
 
-treeCollapser = TreeCollapser()
-print_tree(beginning)
-print("SKSK: ", treeCollapser.convert_tree_to_latex(copy.deepcopy(beginning)))
-print(treeCollapser.collapse(beginning, None, first_call=True))
+# treeCollapser = TreeCollapser()
+# print_tree(beginning)
+# print("SKSK: ", treeCollapser.convert_tree_to_latex(copy.deepcopy(beginning)))
+# print(treeCollapser.collapse(beginning, None, first_call=True))
 
 
 
