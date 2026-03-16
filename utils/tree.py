@@ -1,32 +1,30 @@
 from __future__ import annotations
-
 from typing import Callable, Optional
-import copy
-
 
 
 class Node:
-    def __init__(self, value, child) -> None:
+    def __init__(self, value, child, convert_to_latex: Callable[[Node], str]) -> None:
         self.value = value
         self.child = child
         self.parent = None
+        self.convert_to_latex = convert_to_latex
+
     def __repr__(self) -> str:
         return f"{self.__class__.__qualname__} {{value: {self.value}, child: {self.child}}}"
 
 
-class ValueNode(Node):
-    def __init__(self, value: float) -> None:
-        super().__init__(value, None)
-
+class LatexNode(Node):
+    def __init__(self, value):
+        super().__init__(value, None, None)
 
 class NumberNode(Node):
-    def __init__(self, value: float) -> None:
-        super().__init__(value, None)
+    def __init__(self, value, convert_to_latex):
+        super().__init__(value, None, convert_to_latex)
 
 
 class VariableNode(Node):
     def __init__(self, value: str) -> None:
-        super().__init__(value, None)
+        super().__init__(value, None, lambda: value)
 
 
 class OperationNode(Node):
@@ -34,17 +32,18 @@ class OperationNode(Node):
         self,
         value: Callable[[float, float], float],
         child: list[Node],
+        convert_to_latex
     ) -> None:
-        super().__init__(value, child)
+        super().__init__(value, child, convert_to_latex)
         for child in self.child:
             child.parent = self
 
 
 class UnaryOperationNode(Node):
     def __init__(
-        self, value: Callable[[float], float], child: NumberNode | VariableNode
+        self, value: Callable[[float], float], child: NumberNode | VariableNode, convert_to_latex
     ) -> None:
-        super().__init__(value, child)  # type: ignore
+        super().__init__(value, child, convert_to_latex)  # type: ignore
         self.child.parent = self
 
 
@@ -73,16 +72,14 @@ def print_tree(node, indent="", is_last=True):
 
 def node_label(node):
     """Return a readable label for each node type."""
-    if isinstance(node, ValueNode):
-        return f"Value({node.value})"
     if isinstance(node, NumberNode):
         return f"Number({node.value})"
     if isinstance(node, VariableNode):
         return f"Var({node.value})"
     if isinstance(node, UnaryOperationNode):
-        return f"UnaryOp({node.value.__name__})"
+        return f"UnaryOp({node.convert_to_latex.__name__})"
     if isinstance(node, OperationNode):
-        return f"Op({node.value.__name__})"
+        return f"({node.convert_to_latex.__name__})"
     return f"Node({node.value})"
 
 
@@ -92,67 +89,45 @@ class TreeCollapser:
     def __init__(self) -> None:
         self.seen = []
         self.seen_ref = []
-        self.start : OperationNode
+        self.start: OperationNode
         self.iters = 0
+
     def collapse(
         self, node: Node, previous_level: Optional[Node], first_call: bool = False
     ):
-        self.iters+=1
+        self.iters += 1
         if node is None:
             print("Reached None node — stopping collapse")
             return None
-
-        print(self.iters, " ", "=========================")
-
         if first_call:
             self.seen = []
             self.start = node
-        print("Current Node: ", node_label(node))
-        print_tree(self.start, is_last=False)
-        self.seen.append(copy.deepcopy(node))
-        self.seen_ref.append(node)
-
         if not isinstance(node, OperationNode) and first_call:
             raise TypeError("First node must be an operation node")
-
-        print("NODE: ", node)
-        print("CHILD: ", node.child)
-        print("PREV: ", previous_level)
         if isinstance(node, UnaryOperationNode):
             if not isinstance(node.child, NumberNode):
                 return self.collapse(node.child, node)
-            result = NumberNode(node.value(node.child.value))
+            result = NumberNode(node.value(node.child.value), num_to_latex)
+            print(result)
             if previous_level.child == node:
                 previous_level.child = result
             else:  # it's a list
                 index_of_node = previous_level.child.index(node)
                 previous_level.child[index_of_node] = result
-            print("SEEN: ", self.seen)
             if len(self.seen) < 3:
-                return self.collapse(previous_level, None)
+                return self.collapse(previous_level, previous_level.parent)
             else:
-                # if self.seen[-3].child == previous_level:
-                #     self.seen_ref[-3].child = previous_level
-                # else:
-                #     if self.seen[-3].child[0] == node:
-                #         self.seen_ref[-3].child = [previous_level, self.seen[-3].child[1]]
-                #     else:
-                #         self.seen_ref[-3].child = [self.seen[-3].child[0], previous_level]
                 return self.collapse(previous_level, previous_level.parent)
         else:  # is opeation node
             if not isinstance(node.child[0], NumberNode):
                 return self.collapse(node.child[0], node)
             if not isinstance(node.child[1], NumberNode):
                 return self.collapse(node.child[1], node)
-            result = NumberNode(
-                node.value(node.child[0].value, node.child[1].value)
-            )
+            result = NumberNode(node.value(node.child[0].value, node.child[1].value), num_to_latex)
+            print(result)
+            
             if previous_level is None:
                 return result
-            print("RESULT: ", result)
-            # if not  isinstance(previous_level.child, list):
-            #     previous_level.child = result
-            #     return self.collapse(previous_level, self.seen[-2])
             if isinstance(previous_level, UnaryOperationNode):
                 previous_level.child = node
             else:
@@ -160,29 +135,94 @@ class TreeCollapser:
                     previous_level.child = [result, previous_level.child[1]]
                 else:
                     previous_level.child = [previous_level.child[0], result]
-            print(self.seen[-2] == previous_level, "JSJIKDDDDDDDDDDDDDDDDDD")
+            
             return self.collapse(previous_level, previous_level.parent)
 
+    def convert_tree_to_latex(self, node: Node) -> LatexNode:
+        if isinstance(node, OperationNode):
+            for i in [0,1]:
+                node.child[i] = self.convert_tree_to_latex(node.child[i])
+            latex = node.convert_to_latex(node)
+            return latex
+        if isinstance(node, UnaryOperationNode):
+            node.child = self.convert_tree_to_latex(node.child)
+            return node.convert_to_latex(node)
+        if isinstance(node, NumberNode) or isinstance(node, VariableNode):
+            return node.convert_to_latex(node)
+        if isinstance(node, LatexNode):
+            return node
 
+
+
+def num_to_latex(node):
+    return LatexNode(str(node.value))
+
+
+def add_to_latex(node):
+    return LatexNode(f"\\left({node.child[0].value} + {node.child[1].value}\\right)")
+
+
+def mul_to_latex(node):
+    return LatexNode(f"{node.child[0].value} \\cdot {node.child[1].value}")
+
+
+def pow_to_latex(node):
+    return LatexNode(f"{node.child[0].value}^{{{node.child[1].value}}}")
+
+
+def sub_to_latex(node):
+    return LatexNode(f"\\left({node.child[0].value} - {node.child[1].value}\\right)")
+
+
+def sqrt_to_latex(node):
+    return LatexNode(f"\\sqrt{{{node.child.value}}}")
+
+import copy
 beginning = OperationNode(
-    (lambda x, y: x + y),
+    lambda x, y: x + y,
     [
-        OperationNode((lambda x, y: x * y), [NumberNode(9), NumberNode(2)]),
         OperationNode(
-            (lambda x, y: x * y),
+            lambda x, y: x * y,
             [
-                OperationNode((lambda x, y: x**y), [NumberNode(2), NumberNode(2)]),
+                NumberNode(9, num_to_latex),
+                NumberNode(2, num_to_latex)
+            ],
+            mul_to_latex
+        ),
+        OperationNode(
+            lambda x, y: x * y,
+            [
                 OperationNode(
-                    (lambda x, y: x - y),
+                    lambda x, y: x**y,
                     [
-                        UnaryOperationNode(lambda x: x ** (1 / 2), NumberNode(233333333333)),
-                        NumberNode(2),
+                        NumberNode(2, num_to_latex),
+                        NumberNode(2, num_to_latex)
                     ],
+                    pow_to_latex
+                ),
+                OperationNode(
+                    lambda x, y: x - y,
+                    [
+                        UnaryOperationNode(
+                            lambda x: x ** (1 / 2),
+                            NumberNode(64, num_to_latex),
+                            sqrt_to_latex
+                        ),
+                        NumberNode(2, num_to_latex),
+                    ],
+                    sub_to_latex
                 ),
             ],
+            mul_to_latex
         ),
     ],
+    add_to_latex
 )
 
 treeCollapser = TreeCollapser()
-print("SKSK: ", treeCollapser.collapse(beginning, previous_level=None, first_call=True))
+print_tree(beginning)
+print("SKSK: ", treeCollapser.convert_tree_to_latex(copy.deepcopy(beginning)))
+print(treeCollapser.collapse(beginning, None, first_call=True))
+
+
+
